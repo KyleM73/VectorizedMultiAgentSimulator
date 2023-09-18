@@ -21,6 +21,7 @@ __all__ = [
 
 scenarios = sorted(
     [
+        "cocomas",
         "dropout",
         "dispersion",
         "transport",
