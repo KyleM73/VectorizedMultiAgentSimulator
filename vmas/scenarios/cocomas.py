@@ -2,8 +2,10 @@ import typing
 from typing import Dict, Callable, List
 
 import torch
+import torchvision
+
 from vmas import render_interactively
-from vmas.simulator.core import Agent, Landmark, World, Sphere, Entity
+from vmas.simulator.core import Agent, Landmark, World, Sphere, Box, Entity
 from vmas.simulator.scenario import BaseScenario
 from vmas.simulator.sensors import Lidar
 from vmas.simulator.utils import Color, ScenarioUtils
@@ -33,8 +35,19 @@ class Scenario(BaseScenario):
         self.agent_collision_penalty = kwargs.get("agent_collision_penalty", -1)
 
         self.min_distance_between_entities = self.agent_radius * 2 + 0.05
-        self.world_semidim = 20
+        self.world_semidim = 10
         self.min_collision_distance = 0.005
+
+        self.map_files = kwargs.get("map_files", None)
+        assert self.map_files is not None, "No map files specified"
+        self.raw_maps = torch.cat([torchvision.io.read_image(
+            self.map_files[i%len(self.map_files)],
+            torchvision.io.ImageReadMode.GRAY
+            )/255 
+            for i in range(batch_dim)], dim=0).to(device) #size [batch,h,w]
+        self.maps = torch.where(self.raw_maps,1,0)
+        self.n_walls = torch.sum(self.maps,dim=(1,2))
+        self.wall_loc = torch.argwhere(self.maps)
 
         assert 1 <= self.agents_with_same_goal <= self.n_agents
         if self.agents_with_same_goal > 1:
@@ -105,6 +118,14 @@ class Scenario(BaseScenario):
             )
             world.add_landmark(goal)
             agent.goal = goal
+
+        # Add walls
+        for i in range(self.n_walls):
+            wall = Landmark(
+                name=f"wall {i}",
+                shape=Box(length=0.05, width=0.05, hollow=True)
+            )
+            world.add_landmark(wall)
 
         self.pos_rew = torch.zeros(batch_dim, device=device)
         self.final_rew = self.pos_rew.clone()
